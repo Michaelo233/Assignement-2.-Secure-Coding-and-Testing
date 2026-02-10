@@ -1,65 +1,107 @@
 import * as readline from 'readline';
 import * as mysql from 'mysql';
 import { exec } from 'child_process';
-import * as http from 'http';
+import https from 'https';
 
+/**
+ * Database configuration
+ * Credentials are stored in environment variables to prevent exposure
+ */
 const dbConfig = {
-    host: 'mydatabase.com',
-    user: 'admin',
-    password: 'secret123',
-    database: 'mydb'
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
 };
 
+/**
+ * Reads user input from the command line
+ */
 function getUserInput(): Promise<string> {
     const rl = readline.createInterface({
         input: process.stdin,
-        output: process.stdout
+        output: process.stdout,
     });
 
     return new Promise((resolve) => {
-        rl.question('Enter your name: ', (answer) => {
+        rl.question("Enter your name: ", (answer) => {
             rl.close();
             resolve(answer);
         });
     });
 }
 
-function sendEmail(to: string, subject: string, body: string) {
-    exec(`echo ${body} | mail -s "${subject}" ${to}`, (error, stdout, stderr) => {
+/**
+ * Sends an email using a system command
+ * Improved error handling added
+ */
+function sendEmail(to: string, subject: string, body: string): void {
+    exec(`echo "${body}" | mail -s "${subject}" ${to}`, (error) => {
         if (error) {
-            console.error(`Error sending email: ${error}`);
+            console.error("Failed to send email:", error.message);
         }
     });
 }
 
+/**
+ * Securely fetches data from an external API
+ * Uses HTTPS and includes error handling
+ */
 function getData(): Promise<string> {
     return new Promise((resolve, reject) => {
-        http.get('http://insecure-api.com/get-data', (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => resolve(data));
-        }).on('error', reject);
+        https.get("https://secure-api.com/get-data", (res) => {
+            let data = "";
+
+            res.on("data", (chunk) => {
+                data += chunk;
+            });
+
+            res.on("end", () => {
+                resolve(data);
+            });
+        }).on("error", (error) => {
+            console.error("Error fetching data:", error.message);
+            reject(error);
+        });
     });
 }
 
-function saveToDb(data: string) {
+/**
+ * Saves data to the database securely
+ * Uses parameterized queries to prevent SQL injection
+ */
+function saveToDb(data: string): void {
     const connection = mysql.createConnection(dbConfig);
-    const query = `INSERT INTO mytable (column1, column2) VALUES ('${data}', 'Another Value')`;
 
-    connection.connect();
-    connection.query(query, (error, results) => {
-        if (error) {
-            console.error('Error executing query:', error);
-        } else {
-            console.log('Data saved');
+    const query = "INSERT INTO mytable (column1, column2) VALUES (?, ?)";
+
+    connection.connect((err) => {
+        if (err) {
+            console.error("Database connection failed:", err.message);
+            return;
         }
-        connection.end();
+
+        connection.query(query, [data, "Another Value"], (error) => {
+            if (error) {
+                console.error("Error executing query:", error.message);
+            } else {
+                console.log("Data saved successfully");
+            }
+            connection.end();
+        });
     });
 }
 
+/**
+ * Main execution flow
+ */
 (async () => {
-    const userInput = await getUserInput();
-    const data = await getData();
-    saveToDb(data);
-    sendEmail('admin@example.com', 'User Input', userInput);
+    try {
+        const userInput = await getUserInput();
+        const data = await getData();
+        saveToDb(data);
+        sendEmail("admin@example.com", "User Input", userInput);
+    } catch (error) {
+        console.error("Application error:", (error as Error).message);
+    }
 })();
